@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: ChaosGate
+    orgId: 1
+    folder: ChaosGate
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards
+

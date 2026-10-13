@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaosgate-stable
+  namespace: chaosgate
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: chaosgate-stable
+  template:
+    metadata:
+      labels:
+        app: chaosgate-stable
+    spec:
+      containers:
+        - name: service
+          image: chaosgate:local
+          imagePullPolicy: IfNotPresent
+          command: ["uvicorn", "mock_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          env:
+            - name: SHARD_NAME
+              value: stable
+            - name: ERROR_RATE
+              value: "0.001"
+          ports:
+            - containerPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaosgate-canary
+  namespace: chaosgate
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chaosgate-canary
+  template:
+    metadata:
+      labels:
+        app: chaosgate-canary
+    spec:
+      containers:
+        - name: service
+          image: chaosgate:local
+          imagePullPolicy: IfNotPresent
+          command: ["uvicorn", "mock_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          env:
+            - name: SHARD_NAME
+              value: canary
+            - name: ERROR_RATE
+              value: "0.001"
+          ports:
+            - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stable
+  namespace: chaosgate
+spec:
+  selector:
+    app: chaosgate-stable
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canary
+  namespace: chaosgate
+spec:
+  selector:
+    app: chaosgate-canary
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+

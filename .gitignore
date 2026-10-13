@@ -1,0 +1,11 @@
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+.venv/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+postmortems/*.json
+

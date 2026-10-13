@@ -1,0 +1,110 @@
+services:
+  stable:
+    build: .
+    command: uvicorn mock_service.main:app --host 0.0.0.0 --port 8000
+    environment:
+      SHARD_NAME: stable
+      BASE_DELAY_MS: "25"
+      JITTER_MS: "10"
+      ERROR_RATE: "0.001"
+    cap_add:
+      - NET_ADMIN
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+
+  canary:
+    build: .
+    command: uvicorn mock_service.main:app --host 0.0.0.0 --port 8000
+    environment:
+      SHARD_NAME: canary
+      BASE_DELAY_MS: "25"
+      JITTER_MS: "10"
+      ERROR_RATE: "0.001"
+    cap_add:
+      - NET_ADMIN
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+
+  proxy:
+    build: .
+    command: uvicorn proxy.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8080:8000"
+    environment:
+      STABLE_URL: http://stable:8000
+      CANARY_URL: http://canary:8000
+      CANARY_PERCENT: "5"
+      LATENCY_SLO_MS: "300"
+      PROXY_ADMIN_TOKEN: chaosgate-local
+    depends_on:
+      stable:
+        condition: service_healthy
+      canary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+
+  controller:
+    build: .
+    command: python -m chaosgate.controller
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+      PROXY_ADMIN_URL: http://proxy:8000
+      PROXY_ADMIN_TOKEN: chaosgate-local
+      SERVICE_NAME: chaosgate-proxy
+      SLO_TARGET: "0.999"
+      EVALUATION_INTERVAL_SECONDS: "15"
+      POSTMORTEM_DIR: /postmortems
+      ENABLE_KUBERNETES_ROLLBACK: "false"
+    volumes:
+      - ./postmortems:/postmortems
+    depends_on:
+      prometheus:
+        condition: service_started
+      proxy:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_DEFAULT_THEME: light
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+  locust:
+    build: .
+    profiles: ["load"]
+    command: locust -f app/load/locustfile.py --host http://proxy:8000
+    ports:
+      - "8089:8089"
+    depends_on:
+      proxy:
+        condition: service_healthy
+
